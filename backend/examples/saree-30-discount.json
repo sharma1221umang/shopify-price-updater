@@ -1,0 +1,34 @@
+{
+  "matchMode": "all",
+  "conditions": [
+    {
+      "field": "productType",
+      "operator": "equals",
+      "value": "Saree"
+    },
+    {
+      "field": "sku",
+      "operator": "does_not_contain",
+      "value": "CJM"
+    },
+    {
+      "field": "inventoryQuantity",
+      "operator": "greater_than",
+      "value": 0
+    },
+    {
+      "field": "currentDiscount",
+      "operator": "less_than",
+      "value": 30
+    }
+  ],
+  "action": {
+    "type": "set_discount_percentage",
+    "value": 30
+  },
+  "safety": {
+    "doNotChangeCompareAtPrice": true,
+    "requireCompareAtPrice": true,
+    "verifyAfterUpdate": true
+  }
+}

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shopify Price Updater Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Shopify Price Updater Dashboard</h1>
+        <p class="subtle">Internal pricing operations</p>
+      </div>
+      <div id="healthStatus" class="status status-pending">Checking API</div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="section-title">
+          <h2>Rule Builder</h2>
+          <div class="button-group">
+            <button id="resetRuleBtn" class="button secondary" type="button">Reset Rule</button>
+            <button id="addConditionBtn" class="button secondary" type="button">Add Condition</button>
+          </div>
+        </div>
+
+        <div class="form-grid compact">
+          <label>
+            Match Mode
+            <select id="matchMode">
+              <option value="all">all</option>
+              <option value="any">any</option>
+            </select>
+            <span class="field-help">ALL mode means every condition must match. ANY mode means only one condition needs to match.</span>
+          </label>
+        </div>
+
+        <div id="conditionsList" class="conditions-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Action Settings</h2>
+        </div>
+        <div class="form-grid">
+          <label>
+            Action Type
+            <select id="actionType">
+              <option value="set_discount_percentage">set discount percentage</option>
+            </select>
+          </label>
+          <label>
+            Value
+            <input id="actionValue" type="number" min="1" max="99" step="0.01">
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Safety Settings</h2>
+        </div>
+        <div class="checkbox-grid">
+          <label class="checkbox-row">
+            <input id="doNotChangeCompareAtPrice" type="checkbox" checked disabled>
+            doNotChangeCompareAtPrice
+          </label>
+          <label class="checkbox-row">
+            <input id="requireCompareAtPrice" type="checkbox" checked>
+            requireCompareAtPrice
+          </label>
+          <label class="checkbox-row">
+            <input id="verifyAfterUpdate" type="checkbox" checked>
+            verifyAfterUpdate
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Rule Preview Text</h2>
+        </div>
+        <div id="warningList" class="warning-list"></div>
+        <pre id="rulePreview" class="rule-preview"></pre>
+        <p class="help-text">Dry Run does not change prices. Apply Live Update changes Shopify prices after creating backup.</p>
+      </section>
+
+      <section class="action-bar">
+        <button id="dryRunBtn" class="button primary" type="button">Dry Run</button>
+        <button id="applyBtn" class="button danger" type="button" disabled>Apply Live Update</button>
+        <span id="requestStatus" class="request-status"></span>
+      </section>
+
+      <section class="summary-grid" id="summaryCards"></section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Results</h2>
+          <div class="segmented" id="tableFilters">
+            <button class="active" type="button" data-filter="all">All</button>
+            <button type="button" data-filter="candidates">Update Candidates</button>
+            <button type="button" data-filter="skipped">Skipped</button>
+            <button type="button" data-filter="failed">Failed</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Reason</th>
+                <th>Product</th>
+                <th>Type</th>
+                <th>Variant</th>
+                <th>SKU</th>
+                <th>Barcode</th>
+                <th>Qty</th>
+                <th>Old Price</th>
+                <th>Compare At</th>
+                <th>Old %</th>
+                <th>New Price</th>
+                <th>New %</th>
+                <th>Verify</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody">
+              <tr>
+                <td colspan="14" class="empty-cell">No results yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>Backup / Restore</h2>
+          <button id="refreshBackupsBtn" class="button secondary" type="button">Refresh</button>
+        </div>
+        <div class="restore-row">
+          <label>
+            Backup File
+            <select id="backupSelect"></select>
+            <span class="field-help">Only live backup files can be used for restore. Preview files are not restore points.</span>
+          </label>
+          <button id="restoreDryRunBtn" class="button secondary" type="button">Restore Dry Run</button>
+          <button id="restoreLiveBtn" class="button danger outline" type="button">Restore Live</button>
+        </div>
+        <div id="restoreSummary" class="restore-summary"></div>
+        <div id="restoreStatus" class="request-status"></div>
+      </section>
+    </main>
+
+    <div id="applyModal" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="applyModalTitle">
+        <div class="section-title">
+          <h2 id="applyModalTitle">Confirm Live Update</h2>
+          <button id="closeApplyModalBtn" class="button secondary" type="button">Close</button>
+        </div>
+        <div id="applyModalDetails" class="modal-details"></div>
+        <label>
+          Type APPLY to continue
+          <input id="applyConfirmInput" type="text" autocomplete="off">
+        </label>
+        <div class="modal-actions">
+          <button id="cancelApplyBtn" class="button secondary" type="button">Cancel</button>
+          <button id="confirmApplyBtn" class="button danger" type="button" disabled>Apply Live Update</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="restoreModal" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreModalTitle">
+        <div class="section-title">
+          <h2 id="restoreModalTitle">Confirm Live Restore</h2>
+          <button id="closeRestoreModalBtn" class="button secondary" type="button">Close</button>
+        </div>
+        <div class="modal-details">
+          <div class="warning-item danger-warning">This will restore live Shopify prices from the selected backup file. Continue?</div>
+          <div class="modal-facts">
+            <div class="modal-fact">
+              <span>Backup file</span>
+              <strong id="restoreModalBackupFile">Not selected</strong>
+            </div>
+          </div>
+        </div>
+        <label>
+          Type RESTORE to continue
+          <input id="restoreConfirmInput" type="text" autocomplete="off">
+        </label>
+        <div class="modal-actions">
+          <button id="cancelRestoreBtn" class="button secondary" type="button">Cancel</button>
+          <button id="confirmRestoreBtn" class="button danger" type="button" disabled>Restore Live</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

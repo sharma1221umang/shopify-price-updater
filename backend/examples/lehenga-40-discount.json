@@ -1,0 +1,39 @@
+{
+  "matchMode": "all",
+  "conditions": [
+    {
+      "field": "productType",
+      "operator": "equals",
+      "value": "Lehenga"
+    },
+    {
+      "field": "sku",
+      "operator": "does_not_contain",
+      "value": "CJM"
+    },
+    {
+      "field": "barcode",
+      "operator": "does_not_contain",
+      "value": "CJM"
+    },
+    {
+      "field": "inventoryQuantity",
+      "operator": "greater_than",
+      "value": 0
+    },
+    {
+      "field": "currentDiscount",
+      "operator": "less_than",
+      "value": 40
+    }
+  ],
+  "action": {
+    "type": "set_discount_percentage",
+    "value": 40
+  },
+  "safety": {
+    "doNotChangeCompareAtPrice": true,
+    "requireCompareAtPrice": true,
+    "verifyAfterUpdate": true
+  }
+}

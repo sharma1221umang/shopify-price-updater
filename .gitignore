@@ -1,0 +1,7 @@
+.env
+node_modules/
+backups/
+.shopify/
+.DS_Store
+*.log
+*.local

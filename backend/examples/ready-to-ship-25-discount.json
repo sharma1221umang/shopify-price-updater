@@ -1,0 +1,34 @@
+{
+  "matchMode": "all",
+  "conditions": [
+    {
+      "field": "productTags",
+      "operator": "contains",
+      "value": "ready-to-ship"
+    },
+    {
+      "field": "inventoryQuantity",
+      "operator": "greater_than",
+      "value": 0
+    },
+    {
+      "field": "sku",
+      "operator": "does_not_contain",
+      "value": "CJM"
+    },
+    {
+      "field": "currentDiscount",
+      "operator": "less_than",
+      "value": 25
+    }
+  ],
+  "action": {
+    "type": "set_discount_percentage",
+    "value": 25
+  },
+  "safety": {
+    "doNotChangeCompareAtPrice": true,
+    "requireCompareAtPrice": true,
+    "verifyAfterUpdate": true
+  }
+}
