@@ -130,6 +130,24 @@ function evaluateCondition(condition, context) {
 }
 
 function normalizeRuleRequest(body = {}) {
+  if (body.action && Array.isArray(body.conditionGroups)) {
+    return {
+      groupMatchMode: body.groupMatchMode === "any" ? "any" : "all",
+      conditionGroups: body.conditionGroups.map((group) => ({
+        matchMode: group.matchMode === "any" ? "any" : "all",
+        conditions: Array.isArray(group.conditions) ? group.conditions : [],
+      })),
+      action: body.action,
+      safety: {
+        doNotChangeCompareAtPrice: body.safety?.doNotChangeCompareAtPrice !== false,
+        requireCompareAtPrice: body.safety?.requireCompareAtPrice !== false,
+        verifyAfterUpdate: body.safety?.verifyAfterUpdate !== false,
+        allowPriceAboveCompareAt: body.safety?.allowPriceAboveCompareAt === true,
+        allowPriceIncrease: body.safety?.allowPriceIncrease === true,
+      },
+    };
+  }
+
   if (body.action && Array.isArray(body.conditions)) {
     return {
       matchMode: body.matchMode === "any" ? "any" : "all",
@@ -139,6 +157,8 @@ function normalizeRuleRequest(body = {}) {
         doNotChangeCompareAtPrice: body.safety?.doNotChangeCompareAtPrice !== false,
         requireCompareAtPrice: body.safety?.requireCompareAtPrice !== false,
         verifyAfterUpdate: body.safety?.verifyAfterUpdate !== false,
+        allowPriceAboveCompareAt: body.safety?.allowPriceAboveCompareAt === true,
+        allowPriceIncrease: body.safety?.allowPriceIncrease === true,
       },
     };
   }
@@ -199,26 +219,54 @@ function normalizeRuleRequest(body = {}) {
       doNotChangeCompareAtPrice: true,
       requireCompareAtPrice: true,
       verifyAfterUpdate: true,
+      allowPriceAboveCompareAt: false,
+      allowPriceIncrease: false,
     },
   };
 }
 
 function validateRuleRequest(rule) {
-  if (!["all", "any"].includes(rule.matchMode)) {
-    throw new Error("matchMode must be all or any.");
+  if (Array.isArray(rule.conditionGroups)) {
+    if (!["all", "any"].includes(rule.groupMatchMode)) {
+      throw new Error("groupMatchMode must be all or any.");
+    }
+
+    if (rule.conditionGroups.length === 0) {
+      throw new Error("conditionGroups must be a non-empty array.");
+    }
+
+    rule.conditionGroups.forEach((group, index) => {
+      if (!["all", "any"].includes(group.matchMode)) {
+        throw new Error(`conditionGroups[${index}].matchMode must be all or any.`);
+      }
+
+      if (!Array.isArray(group.conditions) || group.conditions.length === 0) {
+        throw new Error(`conditionGroups[${index}].conditions must be a non-empty array.`);
+      }
+    });
+  } else {
+    if (!["all", "any"].includes(rule.matchMode)) {
+      throw new Error("matchMode must be all or any.");
+    }
+
+    if (!Array.isArray(rule.conditions) || rule.conditions.length === 0) {
+      throw new Error("conditions must be a non-empty array.");
+    }
   }
 
-  if (!Array.isArray(rule.conditions) || rule.conditions.length === 0) {
-    throw new Error("conditions must be a non-empty array.");
-  }
+  const supportedActionTypes = new Set(["set_discount_percentage", "set_exact_price"]);
 
-  if (!rule.action || rule.action.type !== "set_discount_percentage") {
-    throw new Error("Only action.type set_discount_percentage is supported.");
+  if (!rule.action || !supportedActionTypes.has(rule.action.type)) {
+    throw new Error("action.type must be set_discount_percentage or set_exact_price.");
   }
 
   const actionValue = Number(rule.action.value);
 
-  if (!Number.isFinite(actionValue) || actionValue <= 0 || actionValue >= 100) {
+  if (!Number.isFinite(actionValue) || actionValue <= 0) {
+    throw new Error("action.value must be a positive number.");
+  }
+
+  if (rule.action.type === "set_discount_percentage" && actionValue >= 100) {
     throw new Error("action.value must be a number greater than 0 and less than 100.");
   }
 }

@@ -45,11 +45,18 @@ const operatorLabels = {
 
 const actionLabels = {
   set_discount_percentage: "set discount percentage",
+  set_exact_price: "set exact price",
 };
 
 const numericFields = ["inventoryQuantity", "price", "compareAtPrice", "currentDiscount"];
 const productScopeFields = ["productType", "productTitle", "productTags", "vendor"];
 const cjmFields = ["sku", "barcode", "productTitle", "productHandle"];
+const specificIdentifierLabels = {
+  sku: "SKU",
+  barcode: "Barcode",
+  productTitle: "Product title contains",
+  productHandle: "Product handle contains",
+};
 
 const summaryKeys = [
   "productsScanned",
@@ -66,6 +73,8 @@ const summaryKeys = [
 
 const state = {
   conditions: [],
+  conditionGroups: null,
+  specificListMode: false,
   results: [],
   activeFilter: "all",
   dryRunSucceeded: false,
@@ -82,10 +91,19 @@ const elements = {
   resetRuleBtn: document.getElementById("resetRuleBtn"),
   matchMode: document.getElementById("matchMode"),
   actionType: document.getElementById("actionType"),
+  actionValueLabel: document.getElementById("actionValueLabel"),
   actionValue: document.getElementById("actionValue"),
+  actionHelpText: document.getElementById("actionHelpText"),
+  specificIdentifierType: document.getElementById("specificIdentifierType"),
+  specificIdentifiers: document.getElementById("specificIdentifiers"),
+  specificRequireInventory: document.getElementById("specificRequireInventory"),
+  createSpecificRuleBtn: document.getElementById("createSpecificRuleBtn"),
+  specificRuleStatus: document.getElementById("specificRuleStatus"),
   doNotChangeCompareAtPrice: document.getElementById("doNotChangeCompareAtPrice"),
   requireCompareAtPrice: document.getElementById("requireCompareAtPrice"),
   verifyAfterUpdate: document.getElementById("verifyAfterUpdate"),
+  allowPriceAboveCompareAt: document.getElementById("allowPriceAboveCompareAt"),
+  allowPriceIncrease: document.getElementById("allowPriceIncrease"),
   dryRunBtn: document.getElementById("dryRunBtn"),
   applyBtn: document.getElementById("applyBtn"),
   requestStatus: document.getElementById("requestStatus"),
@@ -156,6 +174,11 @@ function formatValue(value) {
   return String(value);
 }
 
+function formatCurrency(value) {
+  const formatted = formatValue(value);
+  return formatted === "" ? "" : `₹${formatted}`;
+}
+
 function renderConditions() {
   if (!state.conditions.length) {
     elements.conditionsList.innerHTML = `
@@ -205,16 +228,30 @@ function parseConditionValue(condition) {
   return condition.value;
 }
 
-function buildPayload() {
-  const conditions = state.conditions.map((condition) => ({
+function normalizeConditionForPayload(condition) {
+  return {
     field: condition.field,
     operator: condition.operator,
     value: parseConditionValue(condition),
-  }));
+  };
+}
+
+function buildPayload() {
+  const conditionPayload = state.conditionGroups
+    ? {
+      groupMatchMode: "all",
+      conditionGroups: state.conditionGroups.map((group) => ({
+        matchMode: group.matchMode,
+        conditions: group.conditions.map(normalizeConditionForPayload),
+      })),
+    }
+    : {
+      matchMode: elements.matchMode.value,
+      conditions: state.conditions.map(normalizeConditionForPayload),
+    };
 
   return {
-    matchMode: elements.matchMode.value,
-    conditions,
+    ...conditionPayload,
     action: {
       type: elements.actionType.value,
       value: Number(elements.actionValue.value),
@@ -223,6 +260,8 @@ function buildPayload() {
       doNotChangeCompareAtPrice: true,
       requireCompareAtPrice: elements.requireCompareAtPrice.checked,
       verifyAfterUpdate: elements.verifyAfterUpdate.checked,
+      allowPriceAboveCompareAt: elements.allowPriceAboveCompareAt.checked,
+      allowPriceIncrease: elements.allowPriceIncrease.checked,
     },
   };
 }
@@ -238,14 +277,45 @@ function conditionToText(condition) {
 function actionToText() {
   const actionLabel = labelForValue(elements.actionType.value, actionLabels);
   const value = elements.actionValue.value === "" ? "" : formatValue(Number(elements.actionValue.value));
+  if (elements.actionType.value === "set_exact_price") {
+    return `${actionLabel} to ${value === "" ? "" : formatCurrency(Number(elements.actionValue.value))}`;
+  }
   return `${actionLabel} to ${value}%`;
+}
+
+function actionToModalText() {
+  const value = Number(elements.actionValue.value);
+  if (elements.actionType.value === "set_exact_price") {
+    return `Set exact price to ${formatCurrency(value)}`;
+  }
+  return `Set discount percentage to ${formatValue(value)}%`;
 }
 
 function getReadableConditions() {
   return state.conditions.map(conditionToText);
 }
 
+function getReadableConditionGroups() {
+  if (!state.conditionGroups) return [];
+
+  return state.conditionGroups.map((group, index) => {
+    const mode = group.matchMode === "any" ? "any" : "all";
+    const lines = group.conditions.map((condition) => `  - ${conditionToText(condition)}`);
+    return [`Group ${index + 1}: ${mode} condition matches`, ...lines].join("\n");
+  });
+}
+
 function renderRulePreview() {
+  if (state.conditionGroups) {
+    const lines = [
+      "IF all condition groups match:",
+      ...getReadableConditionGroups(),
+      `THEN ${actionToText()}`,
+    ];
+    elements.rulePreview.textContent = lines.join("\n");
+    return;
+  }
+
   if (!state.conditions.length) {
     elements.rulePreview.textContent = "No rule created yet.";
     return;
@@ -266,27 +336,40 @@ function renderRulePreview() {
 function getWarnings() {
   const warnings = [];
 
-  if (elements.matchMode.value === "any") {
+  if (state.specificListMode) {
+    warnings.push("Specific list mode uses ANY matching. Only pasted identifiers will be matched. Check Dry Run before Apply.");
+  } else if (elements.matchMode.value === "any") {
     warnings.push("Warning: ANY mode can match products if only one condition is true. Use ALL mode for safer price updates.");
   }
 
-  if (!state.conditions.length) {
+  if (elements.allowPriceIncrease.checked) {
+    warnings.push("Price increases are allowed. Review dry run carefully.");
+  }
+
+  if (elements.actionType.value === "set_exact_price" && getUpdateCandidateCount() > 10) {
+    warnings.push("Exact price update affects more than 10 variants. Verify carefully.");
+  }
+
+  if (!state.conditions.length && !state.conditionGroups) {
     return warnings;
   }
 
-  const hasProductScope = state.conditions.some((condition) => productScopeFields.includes(condition.field));
-  const hasStockSafety = state.conditions.some((condition) => {
+  const conditionsForWarnings = state.conditionGroups
+    ? state.conditionGroups.flatMap((group) => group.conditions)
+    : state.conditions;
+  const hasProductScope = conditionsForWarnings.some((condition) => productScopeFields.includes(condition.field));
+  const hasStockSafety = conditionsForWarnings.some((condition) => {
     return condition.field === "inventoryQuantity"
       && condition.operator === "greater_than"
       && Number(condition.value) === 0;
   });
-  const excludesCJM = state.conditions.some((condition) => {
+  const excludesCJM = conditionsForWarnings.some((condition) => {
     return cjmFields.includes(condition.field)
       && condition.operator === "does_not_contain"
       && String(condition.value || "").toLowerCase().includes("cjm");
   });
 
-  if (!hasProductScope) {
+  if (!hasProductScope && !state.specificListMode) {
     warnings.push("Warning: This rule may affect many products. Add a product/category condition.");
   }
 
@@ -301,10 +384,25 @@ function getWarnings() {
   return warnings;
 }
 
+function updateActionValueControl() {
+  if (elements.actionType.value === "set_exact_price") {
+    elements.actionValueLabel.firstChild.textContent = "Exact Price";
+    elements.actionValue.min = "0.01";
+    elements.actionValue.removeAttribute("max");
+    elements.actionHelpText.textContent = "Use specific SKU/barcode/title rules before applying exact prices.";
+    return;
+  }
+
+  elements.actionValueLabel.firstChild.textContent = "Discount Percentage";
+  elements.actionValue.min = "1";
+  elements.actionValue.max = "99";
+  elements.actionHelpText.textContent = "";
+}
+
 function renderWarnings() {
   const warnings = getWarnings();
   elements.warningList.innerHTML = warnings.map((warning) => (
-    `<div class="warning-item">${escapeHtml(warning)}</div>`
+    `<div class="warning-item ${warning.includes("Price increases are allowed") || warning.includes("Exact price update affects more than 10") ? "danger-warning" : ""}">${escapeHtml(warning)}</div>`
   )).join("");
 }
 
@@ -313,44 +411,60 @@ function validateRule() {
   const actionValueRaw = elements.actionValue.value;
   const actionValue = Number(actionValueRaw);
 
-  if (!state.conditions.length) {
+  if (!state.conditions.length && !state.conditionGroups) {
     errors.push("At least one condition is required.");
   }
 
   if (actionValueRaw === "") {
     errors.push("Action value is required.");
-  } else if (!Number.isFinite(actionValue) || actionValue <= 0 || actionValue >= 100) {
+  } else if (!Number.isFinite(actionValue) || actionValue <= 0) {
+    errors.push("Action value must be greater than 0.");
+  } else if (elements.actionType.value === "set_discount_percentage" && actionValue >= 100) {
     errors.push("Action value must be greater than 0 and less than 100.");
   }
 
-  state.conditions.forEach((condition, index) => {
-    const position = index + 1;
-
-    if (!condition.field) {
-      errors.push(`Condition ${position}: field is required.`);
-    }
-
-    if (!condition.operator) {
-      errors.push(`Condition ${position}: operator is required.`);
-      return;
-    }
-
-    if (condition.operator === "is_empty" || condition.operator === "is_not_empty") return;
-
-    if (condition.value === "" || condition.value === null || condition.value === undefined) {
-      errors.push(`Condition ${position}: value is required.`);
-      return;
-    }
-
-    if (numericFields.includes(condition.field)) {
-      const numericValue = Number(condition.value);
-      if (!Number.isFinite(numericValue)) {
-        errors.push(`Condition ${position}: ${condition.field} must have a numeric value.`);
+  if (state.conditionGroups) {
+    state.conditionGroups.forEach((group, groupIndex) => {
+      if (!group.conditions.length) {
+        errors.push(`Condition group ${groupIndex + 1}: at least one condition is required.`);
       }
-    }
-  });
+
+      group.conditions.forEach((condition, conditionIndex) => {
+        validateCondition(condition, `Condition group ${groupIndex + 1}.${conditionIndex + 1}`, errors);
+      });
+    });
+  } else {
+    state.conditions.forEach((condition, index) => {
+      validateCondition(condition, `Condition ${index + 1}`, errors);
+    });
+  }
 
   return errors;
+}
+
+function validateCondition(condition, label, errors) {
+  if (!condition.field) {
+    errors.push(`${label}: field is required.`);
+  }
+
+  if (!condition.operator) {
+    errors.push(`${label}: operator is required.`);
+    return;
+  }
+
+  if (condition.operator === "is_empty" || condition.operator === "is_not_empty") return;
+
+  if (condition.value === "" || condition.value === null || condition.value === undefined) {
+    errors.push(`${label}: value is required.`);
+    return;
+  }
+
+  if (numericFields.includes(condition.field)) {
+    const numericValue = Number(condition.value);
+    if (!Number.isFinite(numericValue)) {
+      errors.push(`${label}: ${condition.field} must have a numeric value.`);
+    }
+  }
 }
 
 async function apiFetch(url, options = {}) {
@@ -469,7 +583,11 @@ async function runDryRun() {
     state.highVolumeAcknowledged = false;
     handleUpdaterResponse(data);
     renderHighVolumeSafety();
-    setStatus(elements.requestStatus, `Dry run complete: ${data.previewPath || ""}`, "ok");
+    setStatus(
+      elements.requestStatus,
+      `Dry run complete: ${data.summary?.updateCandidates ?? 0} update candidates. ${data.previewPath || ""}`,
+      "ok",
+    );
     await loadBackups();
   } catch (error) {
     setStatus(elements.requestStatus, error.message, "error");
@@ -486,11 +604,38 @@ async function applyLiveUpdate() {
 function openApplyModal() {
   elements.applyConfirmInput.value = "";
   elements.confirmApplyBtn.disabled = true;
-  const anyModeWarning = elements.matchMode.value === "any"
+  const anyModeWarning = elements.matchMode.value === "any" && !state.specificListMode
     ? `<div class="warning-item danger-warning">ANY mode is selected. This may update more products than expected.</div>`
     : "";
+  const specificListWarning = state.specificListMode
+    ? `<div class="warning-item">Specific list mode uses ANY matching. Only pasted identifiers will be matched. Check Dry Run before Apply.</div>`
+    : "";
+  const priceIncreaseWarning = elements.allowPriceIncrease.checked
+    ? `<div class="warning-item danger-warning">This update may increase product prices.</div>`
+    : "";
+  const exactPriceFacts = elements.actionType.value === "set_exact_price"
+    ? `
+      <div class="modal-fact">
+        <span>Exact price</span>
+        <strong>${escapeHtml(formatCurrency(Number(elements.actionValue.value)))}</strong>
+      </div>
+      <div class="modal-fact">
+        <span>Price increase allowed</span>
+        <strong>${elements.allowPriceIncrease.checked ? "Yes" : "No"}</strong>
+      </div>
+      <div class="modal-fact">
+        <span>Above compare-at allowed</span>
+        <strong>${elements.allowPriceAboveCompareAt.checked ? "Yes" : "No"}</strong>
+      </div>
+    `
+    : "";
+  const readableConditions = state.conditionGroups
+    ? getReadableConditionGroups().join("\n")
+    : getReadableConditions().map((condition) => `- ${condition}`).join("\n");
   elements.applyModalDetails.innerHTML = `
     ${anyModeWarning}
+    ${specificListWarning}
+    ${priceIncreaseWarning}
     <div class="modal-facts">
       <div class="modal-fact">
         <span>Match mode</span>
@@ -500,16 +645,17 @@ function openApplyModal() {
         <span>Update candidates</span>
         <strong>${escapeHtml(state.lastDryRunSummary.updateCandidates ?? 0)}</strong>
       </div>
+      ${exactPriceFacts}
       <div class="modal-fact">
         <span>Action</span>
-        <strong>${escapeHtml(actionToText())}</strong>
+        <strong>${escapeHtml(actionToModalText())}</strong>
       </div>
       <div class="modal-fact">
         <span>Preview path</span>
         <strong>${escapeHtml(state.lastPreviewPath || "Not available")}</strong>
       </div>
     </div>
-    <pre>${escapeHtml(getReadableConditions().map((condition) => `- ${condition}`).join("\n"))}</pre>
+    <pre>${escapeHtml(readableConditions)}</pre>
   `;
   elements.applyModal.hidden = false;
   elements.applyConfirmInput.focus();
@@ -545,6 +691,7 @@ async function submitLiveUpdate() {
 function handleUpdaterResponse(data) {
   state.results = Array.isArray(data.results) ? data.results : [];
   renderSummary(data.summary || {});
+  renderWarnings();
   renderResults();
 }
 
@@ -748,9 +895,67 @@ async function submitRestoreLive() {
   }
 }
 
+function parseSpecificIdentifiers() {
+  return elements.specificIdentifiers.value
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function createSpecificRuleFromList() {
+  const identifiers = parseSpecificIdentifiers();
+
+  if (!identifiers.length) {
+    setStatus(elements.specificRuleStatus, "Paste at least one identifier.", "error");
+    return;
+  }
+
+  const identifierType = elements.specificIdentifierType.value;
+  const field = identifierType;
+  const operator = identifierType === "sku" || identifierType === "barcode" ? "equals" : "contains";
+  const identifierConditions = identifiers.map((value) => ({ field, operator, value }));
+  const conditionGroups = [
+    {
+      matchMode: "any",
+      conditions: identifierConditions,
+    },
+  ];
+
+  if (elements.specificRequireInventory.checked) {
+    conditionGroups.push({
+      matchMode: "all",
+      conditions: [
+        { field: "inventoryQuantity", operator: "greater_than", value: 0 },
+      ],
+    });
+  }
+
+  state.conditions = identifierConditions;
+  state.conditionGroups = conditionGroups;
+  state.specificListMode = true;
+  elements.matchMode.value = "any";
+  elements.actionType.value = "set_exact_price";
+  updateActionValueControl();
+  invalidateDryRun();
+  renderConditions();
+  setStatus(
+    elements.specificRuleStatus,
+    `Created ${identifiers.length} ${specificIdentifierLabels[identifierType]} condition${identifiers.length === 1 ? "" : "s"}.`,
+    "ok",
+  );
+}
+
+function clearGroupedRuleForManualEdit() {
+  if (!state.conditionGroups) return;
+  state.conditionGroups = null;
+  state.specificListMode = false;
+  setStatus(elements.specificRuleStatus, "");
+}
+
 elements.conditionsList.addEventListener("change", (event) => {
   const row = event.target.closest(".condition-row");
   if (!row) return;
+  clearGroupedRuleForManualEdit();
   const index = Number(row.dataset.index);
   const role = event.target.dataset.role;
   state.conditions[index][role] = event.target.value;
@@ -769,6 +974,7 @@ elements.conditionsList.addEventListener("change", (event) => {
 elements.conditionsList.addEventListener("input", (event) => {
   const row = event.target.closest(".condition-row");
   if (!row || event.target.dataset.role !== "value") return;
+  clearGroupedRuleForManualEdit();
   state.conditions[Number(row.dataset.index)].value = event.target.value;
   invalidateDryRun();
 });
@@ -776,12 +982,14 @@ elements.conditionsList.addEventListener("input", (event) => {
 elements.conditionsList.addEventListener("click", (event) => {
   if (!event.target.classList.contains("remove-condition")) return;
   const row = event.target.closest(".condition-row");
+  clearGroupedRuleForManualEdit();
   state.conditions.splice(Number(row.dataset.index), 1);
   invalidateDryRun();
   renderConditions();
 });
 
 elements.addConditionBtn.addEventListener("click", () => {
+  clearGroupedRuleForManualEdit();
   state.conditions.push({ field: "", operator: "", value: "" });
   invalidateDryRun();
   renderConditions();
@@ -789,14 +997,22 @@ elements.addConditionBtn.addEventListener("click", () => {
 
 elements.resetRuleBtn.addEventListener("click", () => {
   state.conditions = [];
+  state.conditionGroups = null;
+  state.specificListMode = false;
   state.results = [];
   elements.matchMode.value = "all";
   elements.actionType.value = "set_discount_percentage";
+  updateActionValueControl();
   elements.actionValue.value = "";
   elements.requireCompareAtPrice.checked = true;
   elements.verifyAfterUpdate.checked = true;
+  elements.allowPriceAboveCompareAt.checked = false;
+  elements.allowPriceIncrease.checked = false;
+  elements.specificIdentifiers.value = "";
+  elements.specificRequireInventory.checked = true;
   setStatus(elements.requestStatus, "");
   setStatus(elements.restoreStatus, "");
+  setStatus(elements.specificRuleStatus, "");
   elements.restoreSummary.innerHTML = "";
   renderSummary();
   renderResults();
@@ -815,11 +1031,23 @@ elements.tableFilters.addEventListener("click", (event) => {
 
 elements.dryRunBtn.addEventListener("click", runDryRun);
 elements.applyBtn.addEventListener("click", applyLiveUpdate);
-elements.matchMode.addEventListener("change", invalidateDryRun);
-elements.actionType.addEventListener("change", invalidateDryRun);
+elements.createSpecificRuleBtn.addEventListener("click", createSpecificRuleFromList);
+elements.specificIdentifiers.addEventListener("input", () => setStatus(elements.specificRuleStatus, ""));
+elements.specificIdentifierType.addEventListener("change", () => setStatus(elements.specificRuleStatus, ""));
+elements.specificRequireInventory.addEventListener("change", () => setStatus(elements.specificRuleStatus, ""));
+elements.matchMode.addEventListener("change", () => {
+  clearGroupedRuleForManualEdit();
+  invalidateDryRun();
+});
+elements.actionType.addEventListener("change", () => {
+  updateActionValueControl();
+  invalidateDryRun();
+});
 elements.actionValue.addEventListener("input", invalidateDryRun);
 elements.requireCompareAtPrice.addEventListener("change", invalidateDryRun);
 elements.verifyAfterUpdate.addEventListener("change", invalidateDryRun);
+elements.allowPriceAboveCompareAt.addEventListener("change", invalidateDryRun);
+elements.allowPriceIncrease.addEventListener("change", invalidateDryRun);
 elements.closeApplyModalBtn.addEventListener("click", closeApplyModal);
 elements.cancelApplyBtn.addEventListener("click", closeApplyModal);
 elements.applyConfirmInput.addEventListener("input", () => {
@@ -844,6 +1072,7 @@ elements.restoreDryRunBtn.addEventListener("click", () => restorePrices(false));
 elements.restoreLiveBtn.addEventListener("click", () => restorePrices(true));
 
 renderConditions();
+updateActionValueControl();
 renderSummary();
 checkHealth();
 loadBackups();

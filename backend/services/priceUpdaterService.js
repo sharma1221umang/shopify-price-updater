@@ -75,14 +75,28 @@ function createBackupRecord(result) {
     oldPrice: result.oldPrice,
     oldCompareAtPrice: result.oldCompareAtPrice,
     oldDiscount: result.oldDiscount,
+    actionType: result.actionType,
     newPrice: result.newPrice,
     newDiscount: result.newDiscount,
+    priceIncreaseAllowed: result.priceIncreaseAllowed,
     timestamp: new Date().toISOString(),
   };
 }
 
 function calculateActionPrice(result, rule) {
   const actionValue = Number(rule.action.value);
+
+  if (rule.action.type === "set_exact_price") {
+    const newPrice = roundToTwo(actionValue);
+
+    return {
+      newPrice,
+      newDiscount: result.oldCompareAtPrice
+        ? roundToTwo(discountPercent(newPrice, result.oldCompareAtPrice))
+        : null,
+    };
+  }
+
   const newPrice = result.oldCompareAtPrice * (1 - actionValue / 100);
 
   return {
@@ -129,15 +143,11 @@ async function collectPriceUpdateCandidates(rule, mode) {
 
         summary.matched++;
 
-        if (result.oldDiscount !== null && result.oldDiscount >= Number(rule.action.value)) {
-          summary.skippedRuleMismatch++;
-          result.action = "SKIP";
-          result.reason = `Already >= ${rule.action.value}%`;
-          results.push(result);
-          continue;
-        }
-
         const calculated = calculateActionPrice(result, rule);
+        result.actionType = rule.action.type;
+        result.newPrice = calculated.newPrice;
+        result.newDiscount = calculated.newDiscount;
+        result.priceIncreaseAllowed = rule.safety.allowPriceIncrease === true;
 
         if (calculated.newPrice <= 0) {
           summary.skippedInvalidPrice++;
@@ -147,7 +157,45 @@ async function collectPriceUpdateCandidates(rule, mode) {
           continue;
         }
 
-        if (calculated.newPrice >= result.oldCompareAtPrice) {
+        if (
+          pricesMatch(calculated.newPrice, result.oldPrice)
+        ) {
+          summary.skippedInvalidPrice++;
+          result.action = "SKIP";
+          result.reason = "Price already equals target price";
+          results.push(result);
+          continue;
+        }
+
+        if (
+          result.oldPrice !== null
+          && calculated.newPrice > result.oldPrice
+          && !rule.safety.allowPriceIncrease
+        ) {
+          summary.skippedInvalidPrice++;
+          result.action = "SKIP";
+          result.reason = "Price increase blocked by safety setting";
+          results.push(result);
+          continue;
+        }
+
+        if (
+          rule.action.type === "set_exact_price"
+          && !rule.safety.allowPriceAboveCompareAt
+          && result.oldCompareAtPrice
+          && calculated.newPrice >= result.oldCompareAtPrice
+        ) {
+          summary.skippedInvalidPrice++;
+          result.action = "SKIP";
+          result.reason = "Exact price is not below compareAtPrice";
+          results.push(result);
+          continue;
+        }
+
+        if (
+          rule.action.type === "set_discount_percentage"
+          && calculated.newPrice >= result.oldCompareAtPrice
+        ) {
           summary.skippedInvalidPrice++;
           result.action = "SKIP";
           result.reason = "New price must be less than compareAtPrice";
@@ -155,8 +203,6 @@ async function collectPriceUpdateCandidates(rule, mode) {
           continue;
         }
 
-        result.newPrice = calculated.newPrice;
-        result.newDiscount = calculated.newDiscount;
         result.action = mode === "dry-run" ? "DRY_RUN_UPDATE" : "PENDING_UPDATE";
         results.push(result);
         updateCandidates.push(result);

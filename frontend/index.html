@@ -41,6 +41,35 @@
 
       <section class="panel">
         <div class="section-title">
+          <h2>Specific Products / Variants</h2>
+        </div>
+        <div class="form-grid">
+          <label>
+            Identifier Type
+            <select id="specificIdentifierType">
+              <option value="sku">SKU</option>
+              <option value="barcode">Barcode</option>
+              <option value="productTitle">Product title contains</option>
+              <option value="productHandle">Product handle contains</option>
+            </select>
+          </label>
+          <label class="checkbox-row checkbox-row-inline">
+            <input id="specificRequireInventory" type="checkbox" checked>
+            Also require inventory greater than 0
+          </label>
+        </div>
+        <label class="textarea-label">
+          Identifiers
+          <textarea id="specificIdentifiers" placeholder="Enter one SKU/barcode/title/handle per line"></textarea>
+        </label>
+        <div class="button-group helper-actions">
+          <button id="createSpecificRuleBtn" class="button secondary" type="button">Create Rule From List</button>
+          <span id="specificRuleStatus" class="request-status"></span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
           <h2>Action Settings</h2>
         </div>
         <div class="form-grid">
@@ -48,11 +77,13 @@
             Action Type
             <select id="actionType">
               <option value="set_discount_percentage">set discount percentage</option>
+              <option value="set_exact_price">set exact price</option>
             </select>
           </label>
-          <label>
-            Value
+          <label id="actionValueLabel">
+            Discount Percentage
             <input id="actionValue" type="number" min="1" max="99" step="0.01">
+            <span id="actionHelpText" class="field-help"></span>
           </label>
         </div>
       </section>
@@ -74,7 +105,16 @@
             <input id="verifyAfterUpdate" type="checkbox" checked>
             verifyAfterUpdate
           </label>
+          <label class="checkbox-row">
+            <input id="allowPriceAboveCompareAt" type="checkbox">
+            Allow exact price above compare-at price
+          </label>
+          <label class="checkbox-row">
+            <input id="allowPriceIncrease" type="checkbox">
+            Allow price increase / discount reduction
+          </label>
         </div>
+        <p class="help-text">Enable this only when you intentionally want to increase product prices, for example changing discount from 40% to 25%.</p>
       </section>
 
       <section class="panel">

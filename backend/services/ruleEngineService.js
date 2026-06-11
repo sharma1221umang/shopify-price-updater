@@ -11,6 +11,39 @@ function evaluateRules(product, variant, rule) {
   const context = createRuleContext(product, variant);
   const matchedConditions = [];
   const failedConditions = [];
+
+  if (Array.isArray(rule.conditionGroups)) {
+    const groupResults = rule.conditionGroups.map((group) => {
+      const conditionResults = group.conditions.map((condition) => {
+        const passed = evaluateCondition(condition, context);
+        const conditionDescription = describeCondition(condition);
+
+        if (passed) {
+          matchedConditions.push(conditionDescription);
+        } else {
+          failedConditions.push(conditionDescription);
+        }
+
+        return passed;
+      });
+
+      return group.matchMode === "any"
+        ? conditionResults.some(Boolean)
+        : conditionResults.every(Boolean);
+    });
+
+    const matched = rule.groupMatchMode === "any"
+      ? groupResults.some(Boolean)
+      : groupResults.every(Boolean);
+
+    return {
+      context,
+      matched,
+      matchedConditions,
+      failedConditions,
+    };
+  }
+
   const groups = new Map();
   const ungroupedResults = [];
 

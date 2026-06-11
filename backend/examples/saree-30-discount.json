@@ -29,6 +29,7 @@
   "safety": {
     "doNotChangeCompareAtPrice": true,
     "requireCompareAtPrice": true,
-    "verifyAfterUpdate": true
+    "verifyAfterUpdate": true,
+    "allowPriceIncrease": false
   }
 }
