@@ -67,6 +67,9 @@ const summaryKeys = [
   "skippedRuleMismatch",
   "skippedMissingCompareAt",
   "skippedInvalidPrice",
+  "skippedAlreadyTargetPrice",
+  "skippedPriceIncreaseBlocked",
+  "skippedCompareAtPriceSafety",
   "updateFailedUserErrors",
   "updateFailedVerification",
 ];

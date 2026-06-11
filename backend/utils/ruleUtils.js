@@ -131,13 +131,18 @@ function evaluateCondition(condition, context) {
 
 function normalizeRuleRequest(body = {}) {
   if (body.action && Array.isArray(body.conditionGroups)) {
+    const actionValue = Number(body.action.value);
+
     return {
       groupMatchMode: body.groupMatchMode === "any" ? "any" : "all",
       conditionGroups: body.conditionGroups.map((group) => ({
         matchMode: group.matchMode === "any" ? "any" : "all",
         conditions: Array.isArray(group.conditions) ? group.conditions : [],
       })),
-      action: body.action,
+      action: {
+        ...body.action,
+        value: Number.isFinite(actionValue) ? actionValue : body.action.value,
+      },
       safety: {
         doNotChangeCompareAtPrice: body.safety?.doNotChangeCompareAtPrice !== false,
         requireCompareAtPrice: body.safety?.requireCompareAtPrice !== false,
@@ -149,10 +154,15 @@ function normalizeRuleRequest(body = {}) {
   }
 
   if (body.action && Array.isArray(body.conditions)) {
+    const actionValue = Number(body.action.value);
+
     return {
       matchMode: body.matchMode === "any" ? "any" : "all",
       conditions: body.conditions,
-      action: body.action,
+      action: {
+        ...body.action,
+        value: Number.isFinite(actionValue) ? actionValue : body.action.value,
+      },
       safety: {
         doNotChangeCompareAtPrice: body.safety?.doNotChangeCompareAtPrice !== false,
         requireCompareAtPrice: body.safety?.requireCompareAtPrice !== false,

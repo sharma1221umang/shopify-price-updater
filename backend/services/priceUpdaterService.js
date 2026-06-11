@@ -23,6 +23,9 @@ function createSummary() {
     skippedRuleMismatch: 0,
     skippedMissingCompareAt: 0,
     skippedInvalidPrice: 0,
+    skippedAlreadyTargetPrice: 0,
+    skippedPriceIncreaseBlocked: 0,
+    skippedCompareAtPriceSafety: 0,
     updateFailedUserErrors: 0,
     updateFailedVerification: 0,
   };
@@ -86,14 +89,28 @@ function createBackupRecord(result) {
 function calculateActionPrice(result, rule) {
   const actionValue = Number(rule.action.value);
 
+  if (!Number.isFinite(actionValue)) {
+    return {
+      newPrice: NaN,
+      newDiscount: null,
+    };
+  }
+
   if (rule.action.type === "set_exact_price") {
     const newPrice = roundToTwo(actionValue);
 
     return {
       newPrice,
-      newDiscount: result.oldCompareAtPrice
+      newDiscount: Number.isFinite(result.oldCompareAtPrice) && result.oldCompareAtPrice > 0
         ? roundToTwo(discountPercent(newPrice, result.oldCompareAtPrice))
         : null,
+    };
+  }
+
+  if (!Number.isFinite(result.oldCompareAtPrice)) {
+    return {
+      newPrice: NaN,
+      newDiscount: null,
     };
   }
 
@@ -101,7 +118,9 @@ function calculateActionPrice(result, rule) {
 
   return {
     newPrice: roundToTwo(newPrice),
-    newDiscount: roundToTwo(discountPercent(newPrice, result.oldCompareAtPrice)),
+    newDiscount: result.oldCompareAtPrice > 0
+      ? roundToTwo(discountPercent(newPrice, result.oldCompareAtPrice))
+      : null,
   };
 }
 
@@ -125,7 +144,10 @@ async function collectPriceUpdateCandidates(rule, mode) {
         const result = createResultBase(product, variant, ruleEvaluation);
         summary.variantsScanned++;
 
-        if (rule.safety.requireCompareAtPrice && !result.oldCompareAtPrice) {
+        if (
+          rule.safety.requireCompareAtPrice
+          && (!Number.isFinite(result.oldCompareAtPrice) || result.oldCompareAtPrice <= 0)
+        ) {
           summary.skippedMissingCompareAt++;
           result.action = "SKIP";
           result.reason = "Missing compareAtPrice";
@@ -149,7 +171,7 @@ async function collectPriceUpdateCandidates(rule, mode) {
         result.newDiscount = calculated.newDiscount;
         result.priceIncreaseAllowed = rule.safety.allowPriceIncrease === true;
 
-        if (calculated.newPrice <= 0) {
+        if (!Number.isFinite(calculated.newPrice) || calculated.newPrice <= 0) {
           summary.skippedInvalidPrice++;
           result.action = "SKIP";
           result.reason = "Invalid new price";
@@ -160,7 +182,7 @@ async function collectPriceUpdateCandidates(rule, mode) {
         if (
           pricesMatch(calculated.newPrice, result.oldPrice)
         ) {
-          summary.skippedInvalidPrice++;
+          summary.skippedAlreadyTargetPrice++;
           result.action = "SKIP";
           result.reason = "Price already equals target price";
           results.push(result);
@@ -168,11 +190,11 @@ async function collectPriceUpdateCandidates(rule, mode) {
         }
 
         if (
-          result.oldPrice !== null
+          Number.isFinite(result.oldPrice)
           && calculated.newPrice > result.oldPrice
           && !rule.safety.allowPriceIncrease
         ) {
-          summary.skippedInvalidPrice++;
+          summary.skippedPriceIncreaseBlocked++;
           result.action = "SKIP";
           result.reason = "Price increase blocked by safety setting";
           results.push(result);
@@ -182,10 +204,11 @@ async function collectPriceUpdateCandidates(rule, mode) {
         if (
           rule.action.type === "set_exact_price"
           && !rule.safety.allowPriceAboveCompareAt
-          && result.oldCompareAtPrice
+          && Number.isFinite(result.oldCompareAtPrice)
+          && result.oldCompareAtPrice > 0
           && calculated.newPrice >= result.oldCompareAtPrice
         ) {
-          summary.skippedInvalidPrice++;
+          summary.skippedCompareAtPriceSafety++;
           result.action = "SKIP";
           result.reason = "Exact price is not below compareAtPrice";
           results.push(result);
@@ -194,6 +217,8 @@ async function collectPriceUpdateCandidates(rule, mode) {
 
         if (
           rule.action.type === "set_discount_percentage"
+          && Number.isFinite(result.oldCompareAtPrice)
+          && result.oldCompareAtPrice > 0
           && calculated.newPrice >= result.oldCompareAtPrice
         ) {
           summary.skippedInvalidPrice++;
